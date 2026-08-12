@@ -369,6 +369,7 @@ def validate_persisted_data(
     validate_persisted_grid(data.scene)
 
     violations = []
+    violations.extend(_persisted_group_grid_violations(data))
     missing_qa = tuple(
         name for name in c.INVERSION_EXCLUSION_VARIABLES if name not in data.scene
     )
@@ -418,9 +419,48 @@ def validate_persisted_data(
     raise_if_violations("persisted_data", violations)
 
 
+def _persisted_group_grid_violations(data):
+    reference = data.scene["spatial_ref"]
+    reference_transform = reference.attrs.get("GeoTransform")
+    if reference_transform is None:
+        return []
+    reference_parts = _geotransform_parts(reference_transform)
+    if reference_parts is None:
+        return []
+
+    violations = []
+    groups = (
+        ("background", data.background),
+        ("ancillary", data.ancillary),
+        ("results", data.results),
+    )
+    for name, value in groups:
+        if value is None:
+            continue
+        if "spatial_ref" not in value.coords:
+            violations.append(f"{name} is missing scalar 'spatial_ref' grid mapping")
+            continue
+        spatial_ref = value.coords["spatial_ref"]
+        if spatial_ref.ndim != 0:
+            violations.append(f"{name} 'spatial_ref' must be scalar")
+            continue
+        transform = spatial_ref.attrs.get("GeoTransform")
+        parts = _geotransform_parts(transform)
+        if parts is None:
+            violations.append(f"{name} 'spatial_ref' has an invalid GeoTransform")
+            continue
+        tolerance = max(1e-6, max(abs(parts[1]), abs(parts[5])) * 1e-8)
+        if not np.allclose(parts, reference_parts, rtol=0.0, atol=tolerance):
+            violations.append(
+                f"{name} GeoTransform does not match the scene GeoTransform"
+            )
+    return violations
+
+
 def validate_persisted_grid(scene) -> None:
     """Validate the self-describing spatial grid required on disk."""
     violations = []
+    coordinates = {}
     for name in c.SPATIAL_DIMS:
         if name not in scene.coords:
             violations.append(f"scene is missing coordinate {name!r}")
@@ -446,6 +486,7 @@ def validate_persisted_grid(scene) -> None:
                 violations.append(
                     f"coordinate {name!r} must be strictly monotonic"
                 )
+        coordinates[name] = values
 
     if "spatial_ref" not in scene.variables:
         violations.append("scene is missing scalar 'spatial_ref' grid mapping")
@@ -462,8 +503,80 @@ def validate_persisted_grid(scene) -> None:
             violations.append(
                 "'spatial_ref' or scene metadata must contain a nonempty CRS WKT"
             )
+        geotransform = spatial_ref.attrs.get("GeoTransform")
+        if geotransform is None:
+            violations.append(
+                "'spatial_ref' must contain a GeoTransform defining pixel bounds"
+            )
+        elif all(name in coordinates for name in c.SPATIAL_DIMS):
+            violations.extend(
+                _geotransform_coordinate_violations(
+                    geotransform,
+                    x=coordinates["x"],
+                    y=coordinates["y"],
+                )
+            )
 
     raise_if_violations("persisted_grid", violations)
+
+
+def _geotransform_coordinate_violations(geotransform, *, x, y):
+    parts = _geotransform_parts(geotransform)
+    if parts is None:
+        return ["'spatial_ref' GeoTransform must contain six numeric values"]
+    (
+        origin_x,
+        pixel_width,
+        row_rotation,
+        origin_y,
+        column_rotation,
+        pixel_height,
+    ) = parts
+
+    transform = np.asarray(parts, dtype=np.float64)
+    if not np.all(np.isfinite(transform)):
+        return ["'spatial_ref' GeoTransform contains non-finite values"]
+    if pixel_width == 0.0 or pixel_height == 0.0:
+        return ["'spatial_ref' GeoTransform pixel sizes must be nonzero"]
+
+    violations = []
+    resolution = max(abs(pixel_width), abs(pixel_height))
+    tolerance = max(1e-6, resolution * 1e-8)
+    if abs(row_rotation) > tolerance or abs(column_rotation) > tolerance:
+        violations.append(
+            "'spatial_ref' GeoTransform must describe a north-up rectilinear grid"
+        )
+
+    expected_x = origin_x + (np.arange(x.size, dtype=np.float64) + 0.5) * pixel_width
+    expected_y = origin_y + (np.arange(y.size, dtype=np.float64) + 0.5) * pixel_height
+    if not np.allclose(x, expected_x, rtol=0.0, atol=tolerance):
+        violations.append(
+            "coordinate 'x' must contain the pixel centers implied by "
+            "'spatial_ref' GeoTransform"
+        )
+    if not np.allclose(y, expected_y, rtol=0.0, atol=tolerance):
+        violations.append(
+            "coordinate 'y' must contain the pixel centers implied by "
+            "'spatial_ref' GeoTransform"
+        )
+    return violations
+
+
+def _geotransform_parts(geotransform):
+    if isinstance(geotransform, str):
+        parts = geotransform.split()
+    else:
+        try:
+            parts = list(geotransform)
+        except TypeError:
+            return None
+
+    if len(parts) != 6:
+        return None
+    try:
+        return tuple(float(value) for value in parts)
+    except (TypeError, ValueError):
+        return None
 
 
 def _derived_result_violations(results, operations):
