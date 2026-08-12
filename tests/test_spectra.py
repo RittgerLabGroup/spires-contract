@@ -15,7 +15,11 @@ def make_target(dims=("y", "x", "band"), dtype=np.float32, with_band_coord=True)
 def make_solar(dims=("y", "x"), dtype=np.float32):
     sizes = {"y": 3, "x": 4}
     shape = tuple(sizes[d] for d in dims)
-    return xr.DataArray(np.zeros(shape, dtype=dtype), dims=dims)
+    return xr.DataArray(
+        np.zeros(shape, dtype=dtype),
+        dims=dims,
+        attrs={"units": "degrees"},
+    )
 
 
 def test_validate_target_spectra_accepts_valid():

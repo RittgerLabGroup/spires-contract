@@ -12,8 +12,11 @@ SPATIAL_DIMS = ("y", "x")
 # Spatial + spectral spectra arrays (target / background reflectance).
 SPECTRA_DIMS = SPATIAL_DIMS + ("band",)
 
-# Per-pixel solar zenith angle (degrees).
+# Per-pixel solar zenith angle in unpacked physical degrees.
 SOLAR_ANGLE_DIMS = SPATIAL_DIMS
+SOLAR_ANGLE_UNITS = "degrees"
+SOLAR_ANGLE_UNIT_ALIASES = ("degree", "degrees", "deg")
+SOLAR_ZENITH_RANGE_DEGREES = (0.0, 180.0)
 
 # Cluster-level arrays and the excluded-pixel sentinel used by cluster labels.
 CLUSTER_DIM = "cluster"
