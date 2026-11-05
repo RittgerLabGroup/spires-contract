@@ -20,8 +20,8 @@ dynamic = ["version"]  # version derived from git tags via setuptools_scm
 test = ["pytest"]
 
 [project.urls]
-Homepage = "https://github.com/SPIReS-Organization/spires-contract"
-Repository = "https://github.com/SPIReS-Organization/spires-contract"
+Homepage = "https://github.com/RittgerLabGroup/spires-contract"
+Repository = "https://github.com/RittgerLabGroup/spires-contract"
 
 [tool.setuptools.packages.find]
 where = ["."]
